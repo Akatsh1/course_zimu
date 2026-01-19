@@ -1,4 +1,5 @@
 from typing import Iterable
+from datetime import timedelta
 from faster_whisper import WhisperModel
 from faster_whisper.transcribe import Segment
 from pathlib import Path
@@ -31,8 +32,8 @@ class Handler:
     def transcription(self) -> None:
         try:
             file_path = str(self.movie_file_path)
-            model = "./module/faster-whisper-large-v3"
-            model = WhisperModel(model, device="cpu", compute_type="int8",cpu_threads=12,num_workers=1)
+            model = "./model"
+            model = WhisperModel(model, device="cpu", compute_type="int8",cpu_threads=6,num_workers=1)
             segments, info = model.transcribe(
                 file_path,
                 beam_size=10,
@@ -56,22 +57,26 @@ class Handler:
 
     def save_result(self) -> None:
         try:
-            with open(self.srt_file_path, "w", encoding="utf-8") as f:
-                for i, segment in enumerate(tqdm(self.movie_transcribe_content), start=1):
-                    start = self._format_timestamp(segment.start)
-                    end = self._format_timestamp(segment.end)
-                    f.write(f"{i}\n{start} --> {end}\n{segment.text.strip()}\n\n")
+            segments = getattr(self, "movie_transcribe_content", [])
+            if not segments:
+                print(f"No transcription available for '{self.movie_file_path}'")
+                return
+
+            subtitles = []
+            for i, segment in enumerate(tqdm(segments), start=1):
+                subtitles.append(
+                    srt.Subtitle(
+                        index=i,
+                        start=timedelta(seconds=segment.start),
+                        end=timedelta(seconds=segment.end),
+                        content=segment.text.strip(),
+                    )
+                )
+
+            self.srt_file_path.write_text(srt.compose(subtitles), encoding="utf-8")
             print(f"Result saved to '{self.srt_file_path}'")
         except Exception as e:
             print(f"Error saving result for '{self.movie_file_path}': {e}")
-
-    @staticmethod
-    def _format_timestamp(seconds: float) -> str:
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        millis = int((seconds - int(seconds)) * 1000)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 def get_handler(folder_path: Path) -> list[Handler]:
     handlers = []
